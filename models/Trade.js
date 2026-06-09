@@ -12,6 +12,9 @@ const tradeSchema = new mongoose.Schema({
 
   price: Number,
   entryPrice: Number,
+  targetPoints: Number,
+  stopLossPoints: Number,
+  stopLossPrice: Number,
   targetPrice: Number,
   exitPrice: Number,
   exitTime: Date,

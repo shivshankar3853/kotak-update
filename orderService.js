@@ -98,9 +98,32 @@ async function placeOrder(order) {
     const amoValue = String(rawAmo).trim().toUpperCase();
     const amFlag = ["YES", "Y", "TRUE", "1", "AMO"].includes(amoValue)
       ? "YES"
-      : ["NO", "N", "FALSE", "0", "REGULAR"].includes(amoValue)
-      ? "NO"
-      : "YES";
+      : "NO";
+
+    const rawTP =
+      order?.TP ||
+      order?.tp ||
+      order?.target_point ||
+      order?.targetPoints ||
+      order?.target_points;
+    const rawSLP =
+      order?.SLP ||
+      order?.slp ||
+      order?.stop_loss ||
+      order?.stopLoss ||
+      order?.sl ||
+      order?.stop_loss_points;
+
+    const targetPoints = Number(rawTP);
+    const stopLossPoints = Number(rawSLP);
+    const targetPointsFinal =
+      Number.isFinite(targetPoints) && targetPoints > 0
+        ? targetPoints
+        : 10;
+    const stopLossPointsFinal =
+      Number.isFinite(stopLossPoints) && stopLossPoints > 0
+        ? stopLossPoints
+        : 100;
 
     const jData = {
       am: amFlag,
@@ -187,6 +210,15 @@ async function placeOrder(order) {
       tradePrice = 0;
     }
 
+    const targetPrice =
+      action === "BUY"
+        ? tradePrice + targetPointsFinal
+        : tradePrice - targetPointsFinal;
+    const stopLossPrice =
+      action === "BUY"
+        ? tradePrice - stopLossPointsFinal
+        : tradePrice + stopLossPointsFinal;
+
     // ==============================
     // ⚠️ DB CHECK
     // ==============================
@@ -208,7 +240,10 @@ async function placeOrder(order) {
         orderId: orderData?.nOrdNo || "NA",
         price: tradePrice,
         entryPrice: tradePrice,
-        targetPrice: Number(order?.targetPrice || 0),
+        targetPrice,
+        targetPoints: targetPointsFinal,
+        stopLossPoints: stopLossPointsFinal,
+        stopLossPrice,
         status: "OPEN",
         time: new Date(),
         highestPrice: tradePrice,
@@ -257,6 +292,9 @@ async function placeOrder(order) {
           price: tradePrice,
           status: "CLOSED",
           pnl,
+          targetPoints: targetPointsFinal,
+          stopLossPoints: stopLossPointsFinal,
+          stopLossPrice,
           time: new Date()
         });
 

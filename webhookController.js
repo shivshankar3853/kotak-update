@@ -30,6 +30,8 @@ function isDuplicate(signal) {
 // ==============================
 // 🔁 NORMALIZE SIGNAL FORMAT
 // ==============================
+// 🔁 NORMALIZE SIGNAL FORMAT
+// ==============================
 function normalizeSignal(signal) {
   try {
     if (!signal || typeof signal !== "object") return null;
@@ -80,10 +82,22 @@ function normalizeSignal(signal) {
         0,
       TGT:
         signal.TGT ||
+        signal.TP ||
+        signal.tp ||
         signal.target ||
         signal.targetPrice ||
+        signal.target_point ||
+        signal.target_points ||
         signal.target_price ||
         signal.TARGET ||
+        0,
+      SLP:
+        signal.SLP ||
+        signal.slp ||
+        signal.stop_loss ||
+        signal.stopLoss ||
+        signal.sl ||
+        signal.stop_loss_points ||
         0
     };
   } catch (err) {
@@ -122,6 +136,7 @@ function convertTV(signal) {
       order_type: signal.OT || "MARKET",
       transaction_type: signal.TT,
       targetPrice: Number(signal.TGT || 0),
+      stopLossPoint: Number(signal.SLP || 0),
       disclosed_quantity: 0
     };
   } catch (err) {
@@ -204,7 +219,6 @@ async function handleWebhook(req, res) {
     }
 
     return res.send("✅ Signal processed");
-
   } catch (err) {
     console.error("❌ Webhook Error:", err.message);
     return res.status(500).send("Error");
