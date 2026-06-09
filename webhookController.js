@@ -1,6 +1,7 @@
 const { placeOrder } = require("./orderService");
 const { isTradingEnabled, canTrade } = require("./control");
 const { validateSignal } = require("./validator");
+const { decodeSymbol } = require("./symbolDecoder");
 
 // ==============================
 // 🚫 DUPLICATE SIGNAL PROTECTION (SAFE + LEAK FREE)
@@ -93,8 +94,19 @@ function convertTV(signal) {
     const qty = Number(signal.Q);
     if (!Number.isFinite(qty) || qty <= 0) return null;
 
+    // 🔄 Try to decode symbol using symbolDecoder
+    let finalSymbol = signal.TS;
+    try {
+      const decoded = decodeSymbol(signal.TS);
+      finalSymbol = decoded.kotakSymbol; // Use Kotak format for API
+      console.log(`✅ Symbol decoded: ${signal.TS} → ${finalSymbol}`);
+    } catch (decodeErr) {
+      // If decoding fails, use original symbol (might be equity or already correct)
+      console.log(`⚠️ Symbol decode failed (might be equity): ${signal.TS}`);
+    }
+
     return {
-      TS: signal.TS, // already normalized (no re-format)
+      TS: finalSymbol,
       quantity: qty,
       product: signal.P || "NRML",
       validity: signal.VL || "DAY",
