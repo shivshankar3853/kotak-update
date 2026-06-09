@@ -319,9 +319,15 @@ app.post("/webhook", async (req, res) => {
     if (isTokenExpired()) return res.send("Token expired");
 
     const data = req.body || {};
-    const symbol = data.symbol || data.TS;
+    
+    // Check for symbol using multiple possible field names (consistent with normalizeSignal)
+    const symbol = data.TS || 
+                   data.symbol || 
+                   data.ticker || 
+                   data.s || 
+                   data.instrument;
 
-    if (!symbol) return res.status(400).send("Invalid signal");
+    if (!symbol) return res.status(400).json({ status: "invalid signal", errors: ["Missing required field: symbol (TS, symbol, ticker, s, or instrument)"] });
 
     if (isRecent(symbol)) {
       logger.warn(`⚠️ Fast duplicate blocked: ${symbol}`);

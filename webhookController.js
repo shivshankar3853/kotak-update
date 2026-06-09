@@ -33,6 +33,18 @@ function normalizeSignal(signal) {
   try {
     if (!signal || typeof signal !== "object") return null;
 
+    // Extract and convert quantity to number
+    const qty = signal.Q || signal.quantity || signal.qty || signal.QTY || signal.amount;
+    const parsedQty = Number(qty);
+
+    // Extract transaction type and normalize to uppercase
+    const tt = signal.TT ||
+               signal.tt ||
+               signal.transaction_type ||
+               signal.transactionType ||
+               signal.action ||
+               "";
+
     return {
       TS: formatSymbol(
         signal.TS ||
@@ -41,13 +53,8 @@ function normalizeSignal(signal) {
         signal.s ||
         signal.instrument
       ),
-      TT:
-        signal.TT ||
-        signal.tt ||
-        signal.transaction_type ||
-        signal.transactionType ||
-        signal.action,
-      Q: signal.Q || signal.quantity || signal.qty || signal.QTY || signal.amount,
+      TT: String(tt).trim().toUpperCase(),
+      Q: !isNaN(parsedQty) ? parsedQty : qty,
       P: signal.P || signal.product || signal.product_type || "NRML",
       VL: signal.VL || signal.validity || signal.time_in_force || "DAY",
       OT:
