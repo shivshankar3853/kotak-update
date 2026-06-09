@@ -64,6 +64,14 @@ function normalizeSignal(signal) {
         signal.orderType ||
         signal.type ||
         "MARKET",
+      AMO:
+        signal.AMO ||
+        signal.amo ||
+        signal.after_market ||
+        signal.afterMarket ||
+        signal.am ||
+        signal.AT ||
+        signal.at,
       PRICE:
         signal.PRICE ||
         signal.price ||

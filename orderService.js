@@ -85,8 +85,25 @@ async function placeOrder(order) {
     // ==============================
     const qtyFinal = String((quantity || 0) * lotSize);
 
+    const rawAmo =
+      order?.AMO ||
+      order?.amo ||
+      order?.after_market ||
+      order?.afterMarket ||
+      order?.am ||
+      order?.AT ||
+      order?.at ||
+      "";
+
+    const amoValue = String(rawAmo).trim().toUpperCase();
+    const amFlag = ["YES", "Y", "TRUE", "1", "AMO"].includes(amoValue)
+      ? "YES"
+      : ["NO", "N", "FALSE", "0", "REGULAR"].includes(amoValue)
+      ? "NO"
+      : "YES";
+
     const jData = {
-      am: "YES",
+      am: amFlag,
       dq: "0",
       es: instrument?.es || "nse_fo",
       mp: "0",
@@ -100,6 +117,8 @@ async function placeOrder(order) {
       ts: symbol,
       tt: action === "BUY" ? "B" : "S"
     };
+
+    console.log(`📡 Sending Order (AMO=${amFlag}):`, jData);
 
     console.log("📡 Sending Order:", jData);
 
