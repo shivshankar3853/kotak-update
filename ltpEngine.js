@@ -1,9 +1,10 @@
 const axios = require("axios");
 
 const {
-  getSessionToken,
+  getAccessToken,
   getBaseUrl
 } = require("./tokenManager");
+const { findInstrument } = require("./instrumentStore");
 
 const cache = new Map();
 
@@ -26,20 +27,31 @@ async function processQueue() {
 
     try {
 
-      const token = getSessionToken();
-
+      const token = getAccessToken();
       const baseUrl = getBaseUrl();
 
       if (!token || !baseUrl) {
-
-        console.log("⚠️ Missing token or baseUrl");
-
+        console.log("⚠️ Missing access token or baseUrl");
         resolve(0);
-
         continue;
       }
 
-      const formatted = `nse_fo|${symbol}`;
+      let exchange = "nse_fo";
+      let symbolKey = symbol;
+
+      try {
+        const instrument = findInstrument(symbol);
+        if (instrument?.es) {
+          exchange = String(instrument.es).trim().toLowerCase();
+        }
+        if (instrument?.ts) {
+          symbolKey = instrument.ts;
+        }
+      } catch (_) {
+        // fallback to raw symbol
+      }
+
+      const formatted = `${exchange}|${symbolKey}`;
 
       const res = await axios.get(
         `${baseUrl}/script-details/1.0/quotes/neosymbol/${formatted}/all`,
