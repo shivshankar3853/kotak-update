@@ -318,14 +318,22 @@ app.post("/webhook", async (req, res) => {
     if (!isTradingEnabled()) return res.send("Trading disabled");
     if (isTokenExpired()) return res.send("Token expired");
 
-    const data = req.body || {};
+    const body = req.body;
     
-    // Check for symbol using multiple possible field names (consistent with normalizeSignal)
-    const symbol = data.TS || 
-                   data.symbol || 
-                   data.ticker || 
-                   data.s || 
-                   data.instrument;
+    // Handle both array and object payloads
+    const dataArray = Array.isArray(body) ? body : [body];
+    
+    if (!dataArray || dataArray.length === 0) {
+      return res.status(400).json({ status: "invalid signal", errors: ["Empty request body"] });
+    }
+
+    // Check first item for symbol (for duplicate detection)
+    const firstItem = dataArray[0] || {};
+    const symbol = firstItem.TS || 
+                   firstItem.symbol || 
+                   firstItem.ticker || 
+                   firstItem.s || 
+                   firstItem.instrument;
 
     if (!symbol) return res.status(400).json({ status: "invalid signal", errors: ["Missing required field: symbol (TS, symbol, ticker, s, or instrument)"] });
 
@@ -342,6 +350,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     await handleWebhook(req, res);
+
 
   } catch (err) {
     logger.error(`Webhook error: ${err.stack || err.message}`);
