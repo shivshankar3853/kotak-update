@@ -5,6 +5,7 @@ const {
   getBaseUrl
 } = require("./tokenManager");
 const { findInstrument } = require("./instrumentStore");
+const { getTickAsync, subscribeSymbols } = require("./wsService");
 
 const cache = new Map();
 
@@ -14,6 +15,10 @@ let running = false;
 
 const CACHE_MS = 1000;
 const DELAY = 120;
+
+function normalize(symbol) {
+  return (symbol || "").toString().trim().toUpperCase();
+}
 
 async function processQueue() {
 
@@ -36,8 +41,9 @@ async function processQueue() {
         continue;
       }
 
+      const normalizedSymbol = normalize(symbol);
       let exchange = "nse_fo";
-      let symbolKey = symbol;
+      let symbolKey = normalizedSymbol;
 
       try {
         const instrument = findInstrument(symbol);
@@ -69,7 +75,7 @@ async function processQueue() {
         0
       );
 
-      cache.set(symbol, {
+      cache.set(normalizedSymbol, {
         value: ltp,
         time: Date.now()
       });
@@ -90,7 +96,37 @@ async function processQueue() {
   running = false;
 }
 
-function getLTP(symbol) {
+async function getLTP(symbol) {
+  if (!symbol) return 0;
+
+  const normalizedSymbol = normalize(symbol);
+  const now = Date.now();
+
+  const cached = cache.get(normalizedSymbol);
+  if (cached && now - cached.time < CACHE_MS) {
+    return cached.value;
+  }
+
+  try {
+    const wsLtp = await getTickAsync(normalizedSymbol);
+    if (wsLtp && wsLtp > 0) {
+      cache.set(normalizedSymbol, { value: wsLtp, time: Date.now() });
+      return wsLtp;
+    }
+  } catch (_) {
+    // ignore websocket cache failures
+  }
+
+  try {
+    const instrument = findInstrument(normalizedSymbol);
+    const subscriptionSymbols = [normalizedSymbol];
+    if (instrument?.ts && instrument.ts !== normalizedSymbol) {
+      subscriptionSymbols.push(instrument.ts);
+    }
+    await subscribeSymbols(subscriptionSymbols);
+  } catch (_) {
+    // ignore subscription failures
+  }
 
   return new Promise((resolve) => {
 
@@ -100,15 +136,16 @@ function getLTP(symbol) {
         return resolve(0);
       }
 
+      const normalizedSymbol = normalize(symbol);
       const now = Date.now();
 
-      const cached = cache.get(symbol);
+      const cached = cache.get(normalizedSymbol);
 
       if (cached && now - cached.time < CACHE_MS) {
         return resolve(cached.value);
       }
 
-      queue.push({ symbol, resolve });
+      queue.push({ symbol: normalizedSymbol, resolve });
 
       processQueue();
 

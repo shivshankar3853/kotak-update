@@ -26,6 +26,60 @@ let lastPong = Date.now();
 let connected = false;
 let reconnecting = false;
 
+const subscribedSymbols = new Set();
+
+function normalizeSymbol(symbol) {
+  return (symbol || "").toString().trim().toUpperCase();
+}
+
+function buildSubscribePayload(symbols) {
+  if (!symbols || !symbols.length) return null;
+
+  return JSON.stringify({
+    type: "subscribe",
+    instrumentTokens: symbols,
+    symbols
+  });
+}
+
+function sendPendingSubscriptions() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  const symbols = Array.from(subscribedSymbols);
+  if (!symbols.length) return;
+
+  const payload = buildSubscribePayload(symbols);
+  if (payload) {
+    ws.send(payload);
+  }
+}
+
+async function subscribeSymbols(symbols) {
+  if (!symbols) return;
+
+  const items = Array.isArray(symbols) ? symbols : [symbols];
+  const normalized = items
+    .map(normalizeSymbol)
+    .filter(Boolean);
+
+  let added = false;
+  for (const symbol of normalized) {
+    if (!subscribedSymbols.has(symbol)) {
+      subscribedSymbols.add(symbol);
+      added = true;
+    }
+  }
+
+  if (!added) return;
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const payload = buildSubscribePayload(normalized);
+    if (payload) {
+      ws.send(payload);
+    }
+  }
+}
+
 // ================= SESSION UPDATE HANDLER =================
 let sessionReconnectTimer = null;
 
@@ -117,6 +171,8 @@ async function connectWS() {
       const authPayload = `{type:cn,Authorization:${token},Sid:${sid},src:WEB}`;
       ws.send(authPayload);
 
+      sendPendingSubscriptions();
+
       heartbeatInterval = setInterval(() => {
 
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -172,14 +228,25 @@ async function connectWS() {
             time: Date.now()
           };
 
-          tickStore.set(symbol, tick);
+          const keys = new Set([
+            normalizeSymbol(parsed.symbol),
+            normalizeSymbol(parsed.ts),
+            normalizeSymbol(parsed.instrument)
+          ]);
+
+          for (const key of keys) {
+            if (key) tickStore.set(key, tick);
+          }
 
           if (redis?.isOpen) {
-            await redis.set(
-              `tick:${symbol}`,
-              JSON.stringify(tick),
-              { EX: 60 }
-            );
+            for (const key of keys) {
+              if (!key) continue;
+              await redis.set(
+                `tick:${key}`,
+                JSON.stringify(tick),
+                { EX: 60 }
+              );
+            }
           }
         }
 
@@ -227,14 +294,16 @@ async function connectWS() {
 
 // ================= API =================
 function getTick(symbol) {
-  return tickStore.get(symbol)?.ltp || 0;
+  const key = normalizeSymbol(symbol);
+  return tickStore.get(key)?.ltp || 0;
 }
 
 // async version: checks in-memory store, then Redis cache if available
 async function getTickAsync(symbol) {
   if (!symbol) return 0;
 
-  const mem = tickStore.get(symbol);
+  const key = normalizeSymbol(symbol);
+  const mem = tickStore.get(key);
   if (mem && mem.ltp) return mem.ltp;
 
   try {

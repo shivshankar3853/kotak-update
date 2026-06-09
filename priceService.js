@@ -6,6 +6,7 @@ const {
   getBaseUrl
 } = require("./tokenManager");
 const { findInstrument } = require("./instrumentStore");
+const { getTickAsync, subscribeSymbols } = require("./wsService");
 
 // ================= GLOBAL STATE =================
 let lastCallTime = 0;
@@ -145,6 +146,29 @@ async function getLTP(symbol, exchangeOverride, retry = 1) {
   const cached = ltpCache.get(key);
   if (cached && now - cached.time < CACHE_MS) {
     return cached.value;
+  }
+
+  // 2️⃣ LIVE WS TICK CACHE
+  try {
+    const wsLtp = await getTickAsync(key);
+    if (wsLtp && wsLtp > 0) {
+      ltpCache.set(key, { value: wsLtp, time: Date.now() });
+      return wsLtp;
+    }
+  } catch (_) {
+    // ignore websocket cache failures
+  }
+
+  // 3️⃣ Subscribe for future live ticks
+  try {
+    const instrument = findInstrument(key);
+    const subscriptionSymbols = [key];
+    if (instrument?.ts && instrument.ts !== key) {
+      subscriptionSymbols.push(instrument.ts);
+    }
+    await subscribeSymbols(subscriptionSymbols);
+  } catch (_) {
+    // ignore subscription failures
   }
 
   const data = await getQuote(symbol, exchangeOverride, "ltp", retry);

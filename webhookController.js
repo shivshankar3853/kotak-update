@@ -187,7 +187,10 @@ async function handleWebhook(req, res) {
           continue;
         }
 
-        const validSignal = result.data;
+        const validSignal = {
+          ...normalizedSignal,
+          ...result.data
+        };
 
         if (isDuplicate(validSignal)) {
           console.log("⚠️ Duplicate ignored:", validSignal.TS);
