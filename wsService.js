@@ -3,6 +3,7 @@ const logger = require("./logger");
 
 const {
   getSessionToken,
+  getSid,
   getWSUrl
 } = require("./tokenManager");
 
@@ -90,6 +91,7 @@ async function connectWS() {
   try {
 
     const token = getSessionToken();
+    const sid = getSid ? getSid() : null;
     const wsUrl = getWSUrl();
 
     if (!token || !wsUrl) {
@@ -102,7 +104,14 @@ async function connectWS() {
 
     logger.info("🔌 Connecting WS...");
 
-    ws = new WebSocket(wsUrl);
+    const headers = {
+      "neo-fin-key": "neotradeapi"
+    };
+
+    if (token) headers.Auth = token;
+    if (sid) headers.Sid = sid;
+
+    ws = new WebSocket(wsUrl, { headers });
 
     // ================= OPEN =================
     ws.on("open", () => {
@@ -111,11 +120,6 @@ async function connectWS() {
       lastPong = Date.now();
 
       logger.info("📡 WS Connected");
-
-      ws.send(JSON.stringify({
-        type: "subscribe",
-        token
-      }));
 
       heartbeatInterval = setInterval(() => {
 
@@ -184,7 +188,15 @@ async function connectWS() {
         }
 
         global.io?.emit("tick", parsed);
+        global.io?.emit("realtime", parsed);
 
+        if (parsed.order || parsed.orderId || parsed.status) {
+          global.io?.emit("order-event", parsed);
+        }
+
+        if (parsed.position || parsed.positions || parsed.type === "position") {
+          global.io?.emit("position-event", parsed);
+        }
       } catch (err) {
         logger.error(`WS parse error: ${err.message}`);
       }

@@ -9,6 +9,17 @@ const AUTH_BASE_URL =
   process.env.KOTAK_BASE_URL ||
   "https://mis.kotaksecurities.com";
 
+function buildWsUrl(baseUrl) {
+  try {
+    if (!baseUrl) return null;
+
+    const url = new URL(baseUrl);
+    return `wss://${url.host}/realtime`;
+  } catch {
+    return null;
+  }
+}
+
 const REQUEST_TIMEOUT = 15000;
 
 let isLoggingIn = false;
@@ -123,7 +134,11 @@ async function loginCore(totp) {
       session_token: final.token,
       sid: final.sid,
       baseUrl: final.baseUrl,
-      wsUrl: final.wsUrl || process.env.KOTAK_WS_URL || null
+      wsUrl:
+        final.wsUrl ||
+        buildWsUrl(final.baseUrl) ||
+        process.env.KOTAK_WS_URL ||
+        null
     });
 
 console.log("✅ Kotak Login Success");

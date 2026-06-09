@@ -1,5 +1,10 @@
 const axios = require("axios");
-const { getAccessToken, getBaseUrl } = require("./tokenManager");
+const {
+  getAccessToken,
+  getSessionToken,
+  getSid,
+  getBaseUrl
+} = require("./tokenManager");
 const { findInstrument } = require("./instrumentStore");
 
 // ================= GLOBAL STATE =================
@@ -61,11 +66,13 @@ async function getLTP(symbol, exchangeOverride, retry = 1) {
   // 2️⃣ SAFE API CALL
   const value = await safeLTPCall(async () => {
     try {
-      const token = getAccessToken();
+      const accessToken = getAccessToken();
+      const sessionToken = getSessionToken();
+      const sid = getSid();
       const baseUrl = getBaseUrl();
 
-      if (!token || !baseUrl) {
-        console.error("❌ Missing token/baseUrl");
+      if (!baseUrl) {
+        console.error("❌ Missing baseUrl");
         return 0;
       }
 
@@ -84,10 +91,23 @@ async function getLTP(symbol, exchangeOverride, retry = 1) {
 
       const formatted = `${exchange}|${key}`;
 
+      const headers = {
+        "neo-fin-key": "neotradeapi"
+      };
+
+      if (sessionToken && sid) {
+        headers.Auth = sessionToken;
+        headers.Sid = sid;
+      }
+
+      if (accessToken) {
+        headers.Authorization = accessToken;
+      }
+
       const res = await axios.get(
         `${baseUrl}/script-details/1.0/quotes/neosymbol/${formatted}/all`,
         {
-          headers: { Authorization: token },
+          headers,
           timeout: 8000
         }
       );
