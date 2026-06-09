@@ -24,6 +24,21 @@ function normalize(symbol) {
   return (symbol || "").toString().trim().toUpperCase();
 }
 
+function formatQuoteSymbol(rawSymbol) {
+  const symbol = (rawSymbol || "").toString().trim();
+  return symbol;
+}
+
+function buildQuoteUrl(baseUrl, exchange, symbol, filter = "all") {
+  const cleanExchange = String(exchange || "nse_fo").trim().toLowerCase();
+  const quoteSymbol = formatQuoteSymbol(symbol);
+  const encoded = encodeURIComponent(`${cleanExchange}|${quoteSymbol}`);
+
+  const url = new URL(baseUrl);
+  url.pathname = url.pathname.replace(/\/$/, "") + `/script-details/1.0/quotes/neosymbol/${encoded}/${filter}`;
+  return url.toString();
+}
+
 // ================= POST TRADE CONTROL =================
 function setPostTradeCooldown() {
   postTradeLockUntil = Date.now() + POST_TRADE_COOLDOWN;
@@ -50,6 +65,75 @@ async function safeLTPCall(fn) {
   return fn();
 }
 
+// ================= QUOTES API =================
+async function getQuote(symbol, exchangeOverride, filter = "all", retry = 1) {
+  if (!symbol) return null;
+
+  const key = normalize(symbol);
+  const quoteSymbol = formatQuoteSymbol(symbol);
+  const accessToken = getAccessToken();
+  const sessionToken = getSessionToken();
+  const sid = getSid();
+  const baseUrl = getBaseUrl();
+
+  if (!baseUrl) {
+    console.error("❌ Missing baseUrl");
+    return null;
+  }
+
+  let exchange = String(exchangeOverride || "").trim().toLowerCase();
+
+  if (!exchange) {
+    const instrument = findInstrument(key);
+    if (instrument?.es) {
+      exchange = String(instrument.es).trim().toLowerCase();
+    }
+  }
+
+  if (!exchange) {
+    exchange = "nse_fo";
+  }
+
+  const url = buildQuoteUrl(baseUrl, exchange, quoteSymbol, filter);
+
+  const headers = {
+    "neo-fin-key": "neotradeapi",
+    "Content-Type": "application/json"
+  };
+
+  if (sessionToken && sid) {
+    headers.Auth = sessionToken;
+    headers.Sid = sid;
+  }
+
+  if (accessToken) {
+    headers.Authorization = accessToken;
+  }
+
+  try {
+    const res = await axios.get(url, {
+      headers,
+      timeout: 8000
+    });
+
+    return res?.data ?? null;
+  } catch (err) {
+    const msg = err.response?.data || err.message;
+
+    if (typeof msg === "string" && msg.includes("too many")) {
+      console.error("🚨 Quotes THROTTLED BY KOTAK");
+    } else {
+      console.error("❌ Quote Error:", msg);
+    }
+
+    if (retry > 0) {
+      return getQuote(symbol, exchangeOverride, filter, retry - 1);
+    }
+
+    return null;
+  }
+}
+
 // ================= GET LTP =================
 async function getLTP(symbol, exchangeOverride, retry = 1) {
   if (!symbol) return 0;
@@ -63,82 +147,18 @@ async function getLTP(symbol, exchangeOverride, retry = 1) {
     return cached.value;
   }
 
-  // 2️⃣ SAFE API CALL
-  const value = await safeLTPCall(async () => {
-    try {
-      const accessToken = getAccessToken();
-      const sessionToken = getSessionToken();
-      const sid = getSid();
-      const baseUrl = getBaseUrl();
+  const data = await getQuote(symbol, exchangeOverride, "ltp", retry);
+  let raw = 0;
 
-      if (!baseUrl) {
-        console.error("❌ Missing baseUrl");
-        return 0;
-      }
+  if (Array.isArray(data) && data.length > 0) {
+    raw = data[0]?.ltp ?? data[0]?.lastPrice ?? 0;
+  } else if (data && typeof data === "object") {
+    raw = data?.ltp ?? data?.lastPrice ?? 0;
+  }
 
-      let exchange = String(exchangeOverride || "").trim().toLowerCase();
+  const parsed = Number(raw);
+  const value = isNaN(parsed) ? 0 : parsed;
 
-      if (!exchange) {
-        const instrument = findInstrument(key);
-        if (instrument?.es) {
-          exchange = String(instrument.es).trim().toLowerCase();
-        }
-      }
-
-      if (!exchange) {
-        exchange = "nse_fo";
-      }
-
-      const formatted = `${exchange}|${key}`;
-
-      const headers = {
-        "neo-fin-key": "neotradeapi"
-      };
-
-      if (sessionToken && sid) {
-        headers.Auth = sessionToken;
-        headers.Sid = sid;
-      }
-
-      if (accessToken) {
-        headers.Authorization = accessToken;
-      }
-
-      const res = await axios.get(
-        `${baseUrl}/script-details/1.0/quotes/neosymbol/${formatted}/all`,
-        {
-          headers,
-          timeout: 8000
-        }
-      );
-
-      const raw =
-        res?.data?.data?.lastPrice ??
-        res?.data?.data?.ltp ??
-        0;
-
-      const parsed = Number(raw);
-      return isNaN(parsed) ? 0 : parsed;
-
-    } catch (err) {
-      const msg = err.response?.data || err.message;
-
-      if (typeof msg === "string" && msg.includes("too many")) {
-        console.error("🚨 LTP THROTTLED BY KOTAK");
-      } else {
-        console.error("❌ LTP Error:", msg);
-      }
-
-      // optional retry for network failure only
-      if (retry > 0) {
-        return getLTP(symbol, exchangeOverride, retry - 1);
-      }
-
-      return 0;
-    }
-  });
-
-  // 3️⃣ CACHE STORE (only valid values)
   ltpCache.set(key, {
     value,
     time: Date.now()
@@ -149,5 +169,6 @@ async function getLTP(symbol, exchangeOverride, retry = 1) {
 
 module.exports = {
   getLTP,
+  getQuote,
   setPostTradeCooldown
 };

@@ -91,11 +91,11 @@ async function connectWS() {
   try {
 
     const token = getSessionToken();
-    const sid = getSid ? getSid() : null;
+    const sid = getSid();
     const wsUrl = getWSUrl();
 
-    if (!token || !wsUrl) {
-      logger.error("⚠️ Missing WS token/url");
+    if (!token || !sid || !wsUrl) {
+      logger.error("⚠️ Missing WS token/sid/url");
       scheduleReconnect();
       return;
     }
@@ -104,14 +104,7 @@ async function connectWS() {
 
     logger.info("🔌 Connecting WS...");
 
-    const headers = {
-      "neo-fin-key": "neotradeapi"
-    };
-
-    if (token) headers.Auth = token;
-    if (sid) headers.Sid = sid;
-
-    ws = new WebSocket(wsUrl, { headers });
+    ws = new WebSocket(wsUrl);
 
     // ================= OPEN =================
     ws.on("open", () => {
@@ -120,6 +113,9 @@ async function connectWS() {
       lastPong = Date.now();
 
       logger.info("📡 WS Connected");
+
+      const authPayload = `{type:cn,Authorization:${token},Sid:${sid},src:WEB}`;
+      ws.send(authPayload);
 
       heartbeatInterval = setInterval(() => {
 

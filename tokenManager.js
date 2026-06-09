@@ -101,18 +101,29 @@ function getBaseUrl() {
   if (!tokenData) loadToken();
   return tokenData?.baseUrl || null;
 }
-function getWSUrl() {
+function buildWsUrl(baseUrl) {
+  try {
+    if (!baseUrl) return null;
+    const url = new URL(baseUrl);
+    return `wss://${url.host}/realtime`;
+  } catch {
+    return null;
+  }
+}
 
+function getWSUrl() {
   if (!tokenData) {
     loadToken();
   }
 
-  return (
-    typeof tokenData?.wsUrl === "string" &&
-    tokenData.wsUrl.length > 0
-      ? tokenData.wsUrl
-      : process.env.KOTAK_WS_URL || null
-  );
+  if (typeof tokenData?.wsUrl === "string" && tokenData.wsUrl.length > 0) {
+    return tokenData.wsUrl;
+  }
+
+  const derived = buildWsUrl(tokenData?.baseUrl);
+  if (derived) return derived;
+
+  return process.env.KOTAK_WS_URL || null;
 }
 
 // ================= TOKEN VALIDATION =================
