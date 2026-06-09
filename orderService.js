@@ -191,7 +191,7 @@ async function placeOrder(order) {
     let tradePrice = 0;
 
     try {
-      const ltpVal = await getLTP(symbol);
+      const ltpVal = await getLTP(symbol, instrument?.es);
       tradePrice = Number(ltpVal) || 0;
 
       // fallback to WS/Redis cached tick if API LTP is unavailable

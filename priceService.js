@@ -1,5 +1,6 @@
 const axios = require("axios");
 const { getAccessToken, getBaseUrl } = require("./tokenManager");
+const { findInstrument } = require("./instrumentStore");
 
 // ================= GLOBAL STATE =================
 let lastCallTime = 0;
@@ -45,7 +46,7 @@ async function safeLTPCall(fn) {
 }
 
 // ================= GET LTP =================
-async function getLTP(symbol, retry = 1) {
+async function getLTP(symbol, exchangeOverride, retry = 1) {
   if (!symbol) return 0;
 
   const key = normalize(symbol);
@@ -68,8 +69,23 @@ async function getLTP(symbol, retry = 1) {
         return 0;
       }
 
+      let exchange = String(exchangeOverride || "").trim().toLowerCase();
+
+      if (!exchange) {
+        const instrument = findInstrument(key);
+        if (instrument?.es) {
+          exchange = String(instrument.es).trim().toLowerCase();
+        }
+      }
+
+      if (!exchange) {
+        exchange = "nse_fo";
+      }
+
+      const formatted = `${exchange}|${key}`;
+
       const res = await axios.get(
-        `${baseUrl}/script-details/1.0/quotes/neosymbol/nse_fo|${key}/all`,
+        `${baseUrl}/script-details/1.0/quotes/neosymbol/${formatted}/all`,
         {
           headers: { Authorization: token },
           timeout: 8000
@@ -95,7 +111,7 @@ async function getLTP(symbol, retry = 1) {
 
       // optional retry for network failure only
       if (retry > 0) {
-        return getLTP(symbol, retry - 1);
+        return getLTP(symbol, exchangeOverride, retry - 1);
       }
 
       return 0;
