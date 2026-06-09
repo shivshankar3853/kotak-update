@@ -269,6 +269,7 @@ function shutdown() {
 module.exports = {
   connectWS,
   getTick,
+  getTickAsync,
   isWSConnected,
   shutdown
 };
