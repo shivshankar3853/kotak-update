@@ -27,6 +27,10 @@ function normalize(symbol) {
 
 function formatQuoteSymbol(rawSymbol) {
   const symbol = (rawSymbol || "").toString().trim();
+  if (!symbol) return symbol;
+  if (symbol.includes("|")) {
+    return symbol.split("|")[1];
+  }
   return symbol;
 }
 
@@ -71,18 +75,17 @@ async function getQuote(symbol, exchangeOverride, filter = "all", retry = 1) {
   if (!symbol) return null;
 
   const key = normalize(symbol);
-  const quoteSymbol = formatQuoteSymbol(symbol);
+  let quoteSymbol = formatQuoteSymbol(symbol);
   const accessToken = getAccessToken();
   const sessionToken = getSessionToken();
   const sid = getSid();
   const baseUrl = getBaseUrl();
 
-  if (!baseUrl) {
-    console.error("❌ Missing baseUrl");
-    return null;
-  }
-
   let exchange = String(exchangeOverride || "").trim().toLowerCase();
+  if (!exchange && key.includes("|")) {
+    const [exchangePart] = key.split("|");
+    exchange = exchangePart.toLowerCase();
+  }
 
   if (!exchange) {
     const instrument = findInstrument(key);
@@ -95,12 +98,21 @@ async function getQuote(symbol, exchangeOverride, filter = "all", retry = 1) {
     exchange = "nse_fo";
   }
 
+  if (!baseUrl) {
+    console.error("❌ Missing baseUrl");
+    return null;
+  }
+
   const url = buildQuoteUrl(baseUrl, exchange, quoteSymbol, filter);
 
   const headers = {
     "neo-fin-key": "neotradeapi",
     "Content-Type": "application/json"
   };
+
+  if (process.env.DEBUG_LTP === "true") {
+    console.log("🔎 Quote request", { url, exchange, quoteSymbol, filter, headers });
+  }
 
   if (sessionToken && sid) {
     headers.Auth = sessionToken;
@@ -116,6 +128,10 @@ async function getQuote(symbol, exchangeOverride, filter = "all", retry = 1) {
       headers,
       timeout: 8000
     });
+
+    if (process.env.DEBUG_LTP === "true") {
+      console.log("✅ Quote response", { status: res.status, data: res.data });
+    }
 
     return res?.data ?? null;
   } catch (err) {

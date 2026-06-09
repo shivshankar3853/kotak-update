@@ -7,6 +7,7 @@ const {
   getWSUrl
 } = require("./tokenManager");
 
+const { findInstrument } = require("./instrumentStore");
 const {
   getRedisClient
 } = require("./redisClient");
@@ -26,30 +27,51 @@ let lastPong = Date.now();
 let connected = false;
 let reconnecting = false;
 
-const subscribedSymbols = new Set();
+const subscribedTokens = new Set();
 
 function normalizeSymbol(symbol) {
   return (symbol || "").toString().trim().toUpperCase();
 }
 
-function buildSubscribePayload(symbols) {
-  if (!symbols || !symbols.length) return null;
+function buildInstrumentToken(symbol) {
+  const normalized = normalizeSymbol(symbol);
+  if (!normalized) return null;
+
+  if (normalized.includes("|")) {
+    return normalized;
+  }
+
+  const instrument = findInstrument(normalized);
+  const exchange = instrument?.es ? instrument.es.trim() : null;
+  const tokenSymbol = instrument?.ts || normalized;
+
+  if (exchange) {
+    return `${exchange}|${tokenSymbol}`;
+  }
+
+  return normalized;
+}
+
+function buildSubscribePayload(tokens) {
+  if (!tokens || !tokens.length) return null;
 
   return JSON.stringify({
     type: "subscribe",
-    instrumentTokens: symbols,
-    symbols
+    instrumentTokens: tokens
   });
 }
 
 function sendPendingSubscriptions() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-  const symbols = Array.from(subscribedSymbols);
-  if (!symbols.length) return;
+  const tokens = Array.from(subscribedTokens);
+  if (!tokens.length) return;
 
-  const payload = buildSubscribePayload(symbols);
+  const payload = buildSubscribePayload(tokens);
   if (payload) {
+    if (process.env.DEBUG_LTP === "true") {
+      logger.info("📡 WS subscribing pending tokens", { tokens });
+    }
     ws.send(payload);
   }
 }
@@ -58,14 +80,14 @@ async function subscribeSymbols(symbols) {
   if (!symbols) return;
 
   const items = Array.isArray(symbols) ? symbols : [symbols];
-  const normalized = items
-    .map(normalizeSymbol)
+  const tokens = items
+    .map(buildInstrumentToken)
     .filter(Boolean);
 
   let added = false;
-  for (const symbol of normalized) {
-    if (!subscribedSymbols.has(symbol)) {
-      subscribedSymbols.add(symbol);
+  for (const token of tokens) {
+    if (!subscribedTokens.has(token)) {
+      subscribedTokens.add(token);
       added = true;
     }
   }
@@ -73,8 +95,11 @@ async function subscribeSymbols(symbols) {
   if (!added) return;
 
   if (ws && ws.readyState === WebSocket.OPEN) {
-    const payload = buildSubscribePayload(normalized);
+    const payload = buildSubscribePayload(tokens);
     if (payload) {
+      if (process.env.DEBUG_LTP === "true") {
+        logger.info("📡 WS subscribe request", { tokens });
+      }
       ws.send(payload);
     }
   }
@@ -213,11 +238,16 @@ async function connectWS() {
         const symbol =
           parsed.symbol ||
           parsed.ts ||
-          parsed.instrument;
+          parsed.instrument ||
+          parsed.instrumentToken ||
+          parsed.token ||
+          parsed.tkn;
 
         const ltp = Number(
           parsed.ltp ||
           parsed.lastPrice ||
+          parsed.last_price ||
+          parsed.lp ||
           0
         );
 
@@ -231,7 +261,10 @@ async function connectWS() {
           const keys = new Set([
             normalizeSymbol(parsed.symbol),
             normalizeSymbol(parsed.ts),
-            normalizeSymbol(parsed.instrument)
+            normalizeSymbol(parsed.instrument),
+            normalizeSymbol(parsed.instrumentToken),
+            normalizeSymbol(parsed.token),
+            normalizeSymbol(parsed.tkn)
           ]);
 
           for (const key of keys) {
