@@ -424,35 +424,7 @@ function findInstrument(symbol) {
   }
 
   // ==============================
-  // FLEXIBLE MATCH
-  // ==============================
-  for (
-    const [key, value]
-    of cache.entries()
-  ) {
-
-    if (
-      key.includes(
-        normalizedInput
-      ) ||
-      normalizedInput.includes(
-        key
-      )
-    ) {
-
-      if (DEBUG) {
-        console.log(
-          "🎯 FLEX FOUND:",
-          value.ts
-        );
-      }
-
-      return value;
-    }
-  }
-
-  // ==============================
-  // 🔥 FUZZY MATCH FOR FUTURES (NEW)
+  // 🔥 FUZZY MATCH FOR FUTURES (BEFORE FLEXIBLE)
   // ==============================
   // Match futures without day number
   // e.g., GOLDPETAL26JULFUT → GOLDPETAL31JUL26FUT
@@ -483,6 +455,34 @@ function findInstrument(symbol) {
   } catch (err) {
     if (DEBUG) {
       console.log("⚠️ Fuzzy match error:", err.message);
+    }
+  }
+
+  // ==============================
+  // FLEXIBLE MATCH
+  // ==============================
+  for (
+    const [key, value]
+    of cache.entries()
+  ) {
+
+    if (
+      key.includes(
+        normalizedInput
+      ) ||
+      normalizedInput.includes(
+        key
+      )
+    ) {
+
+      if (DEBUG) {
+        console.log(
+          "🎯 FLEX FOUND:",
+          value.ts
+        );
+      }
+
+      return value;
     }
   }
 
