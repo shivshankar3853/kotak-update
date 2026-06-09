@@ -135,6 +135,9 @@ function convertTV(signal) {
       price: Number(signal.PRICE || 0),
       order_type: signal.OT || "MARKET",
       transaction_type: signal.TT,
+      AMO: signal.AMO || signal.amo || signal.after_market || signal.afterMarket || signal.am || "",
+      TP: Number(signal.TGT || 0),
+      SLP: Number(signal.SLP || 0),
       targetPrice: Number(signal.TGT || 0),
       stopLossPoint: Number(signal.SLP || 0),
       disclosed_quantity: 0

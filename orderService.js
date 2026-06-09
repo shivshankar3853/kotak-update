@@ -91,8 +91,6 @@ async function placeOrder(order) {
       order?.after_market ||
       order?.afterMarket ||
       order?.am ||
-      order?.AT ||
-      order?.at ||
       "";
 
     const amoValue = String(rawAmo).trim().toUpperCase();
@@ -103,16 +101,19 @@ async function placeOrder(order) {
     const rawTP =
       order?.TP ||
       order?.tp ||
+      order?.TGT ||
       order?.target_point ||
       order?.targetPoints ||
-      order?.target_points;
+      order?.target_points ||
+      order?.targetPrice;
     const rawSLP =
       order?.SLP ||
       order?.slp ||
       order?.stop_loss ||
       order?.stopLoss ||
       order?.sl ||
-      order?.stop_loss_points;
+      order?.stop_loss_points ||
+      order?.stopLossPoint;
 
     const targetPoints = Number(rawTP);
     const stopLossPoints = Number(rawSLP);
