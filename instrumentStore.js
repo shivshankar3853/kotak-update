@@ -451,6 +451,41 @@ function findInstrument(symbol) {
     }
   }
 
+  // ==============================
+  // 🔥 FUZZY MATCH FOR FUTURES (NEW)
+  // ==============================
+  // Match futures without day number
+  // e.g., GOLDPETAL26JULFUT → GOLDPETAL31JUL26FUT
+  try {
+    const futuresMatch = normalizedInput.match(/^([A-Z]+?)(\d{2})([A-Z]{3})FUT$/);
+    
+    if (futuresMatch) {
+      const [, symbol_name, year_short, month] = futuresMatch;
+      
+      if (DEBUG) {
+        console.log(`🔍 Fuzzy futures search: ${symbol_name} ${month} ${year_short}`);
+      }
+      
+      // Search for matching futures with same symbol, month, and year
+      for (const [key, value] of cache.entries()) {
+        if (key.includes("FUT") && key.startsWith(symbol_name)) {
+          // Extract month and year from database entry
+          const dbMatch = key.match(/([A-Z]{3})(\d{2})FUT/);
+          if (dbMatch && dbMatch[1] === month && dbMatch[2] === year_short) {
+            if (DEBUG) {
+              console.log(`✅ FUZZY FUTURES FOUND: ${value.ts}`);
+            }
+            return value;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    if (DEBUG) {
+      console.log("⚠️ Fuzzy match error:", err.message);
+    }
+  }
+
   if (DEBUG) {
     console.log(
       "⚠️ NOT FOUND:",
