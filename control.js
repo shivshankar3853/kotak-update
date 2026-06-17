@@ -31,9 +31,9 @@ function isTradingEnabled() {
 // ==============================
 const recentSignals = new Map();
 
-const DUPLICATE_WINDOW = 10000;
+const DUPLICATE_WINDOW = 40000;
 
-const MAX_SIGNAL_CACHE = 1000;
+const MAX_SIGNAL_CACHE = 100;
 
 function cleanupOldSignals() {
 
