@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Algo Dashboard</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 14px;
+    }
+
+    header {
+      background: #020617;
+      padding: 18px 24px;
+      font-size: 24px;
+      font-weight: 700;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    .container {
+      display: flex;
+      height: calc(100vh - 70px);
+    }
+
+    .sidebar {
+      width: 450px;
+      background: #020617;
+      padding: 20px;
+      border-right: 1px solid #1e293b;
+    }
+
+    .main {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .card {
+      background: #0f172a;
+      padding: 16px;
+      border-radius: 10px;
+      margin-bottom: 15px;
+      border: 1px solid #1e293b;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-right: 5px;
+      font-size: 14px;
+    }
+
+    .start { background: #22c55e; }
+    .stop { background: #ef4444; }
+    .login { background: #3b82f6; }
+
+    .dot {
+      height: 10px;
+      width: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 5px;
+    }
+
+    .on { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+    .off { background: #ef4444; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    .profit { color: #22c55e; }
+    .loss { color: #ef4444; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+
+    .big-pnl {
+      font-size: 36px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>🚀 Algo Trading Dashboard</header>
+
+<div class="container">
+
+  <div class="sidebar">
+
+    <div class="card">
+      <b>⚙️ Controls</b><br><br>
+      <button class="start" onclick="startTrading()">Start</button>
+      <button class="stop" onclick="stopTrading()">Stop</button>
+      <button class="login" onclick="showLoginPrompt()">Login</button>
+      <br><br>
+      <div id="controlStatus"></div>
+    </div>
+
+    <div class="card">
+      <b>👤 Account</b>
+      <div id="profile">Not Logged</div>
+    </div>
+
+    <div class="card">
+      <b>📡 Signals</b>
+      <ul id="signals"></ul>
+    </div>
+
+
+  </div>
+
+  <div class="main">
+
+    <div class="card">
+      <b>📊 Market Overview</b>
+      <div class="big-pnl" id="pnl">0</div>
+    </div>
+
+    <div class="grid">
+
+      <div class="card">
+        <b>📊 Positions</b>
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Qty</th>
+              <th>Type</th>
+              <th>LTP</th>
+              <th>PnL</th>
+            </tr>
+          </thead>
+          <tbody id="positionsTable"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <b>📊 Daily</b>
+        <div id="daily"></div>
+      </div>
+
+    </div>
+
+    <div class="card">
+      <b>📝 Trades</b>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Side</th>
+            <th>Qty</th>
+            <th>Symbol</th>
+            <th>PnL</th>
+          </tr>
+        </thead>
+        <tbody id="tradesTable"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const socket = io();
+
+
+// ================= SIGNAL =================
+socket.on("signal", d => {
+
+  let li = document.getElementById("latest_signal");
+
+  if (!li) {
+    li = document.createElement("li");
+    li.id = "latest_signal";
+    signals.prepend(li);
+  }
+
+  li.dataset.ts = d.TS;
+
+  li.style.whiteSpace = "pre-wrap";
+
+  li.innerText =
+`🟡 LATEST SIGNAL
+
+Signal Type : ${d.TT}
+Symbol      : ${d.TS}
+Quantity    : ${d.Q}
+Order Type  : ${d.OT}
+Product     : ${d.P}
+Validity    : ${d.VL}
+
+⏳ Order Status: Waiting...`;
+});
+
+// ================= ORDER =================
+socket.on("order", d => {
+
+  const li = document.getElementById("latest_signal");
+
+  if (!li) return;
+
+  const isAccepted =
+    d?.stat === "Ok" &&
+    d?.nOrdNo &&
+    d?.stCode === 200;
+
+  const baseText = li.innerText.split("⏳ Order Status:")[0];
+
+  li.innerText =
+`${baseText}
+⏳ Order Status: ${
+  isAccepted
+    ? `✅ Order Placed\nOrder ID: ${d.nOrdNo}`
+    : `❌ Order Rejected`
+}`;
+});
+
+
+
+// ================= CONTROL =================
+async function startTrading(){ await fetch("/start"); }
+async function stopTrading(){ await fetch("/stop"); }
+
+async function loadControl(){
+  const d = await (await fetch("/control")).json();
+  controlStatus.innerHTML =
+    d.trading
+    ? '<span class="dot on"></span> Trading ON'
+    : '<span class="dot off"></span> Trading OFF';
+}
+
+// ================= PROFILE =================
+async function loadProfile() {
+  try {
+    const res = await fetch("/profile");
+
+    if (!res.ok) {
+      throw new Error(`Profile request failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (!data?.loggedIn) {
+      document.getElementById("profile").innerText = "Not logged in";
+      return;
+    }
+
+    document.getElementById("profile").innerText =
+      `${data.name || "Unknown User"} (${data.clientId || "NA"})`;
+  } catch (err) {
+    console.error("Profile load error:", err);
+    document.getElementById("profile").innerText = "Not logged in";
+  }
+}
+// ================= POSITIONS =================
+async function loadPositions(){
+  const data = await (await fetch("/positions")).json();
+
+  let total = 0;
+  positionsTable.innerHTML = "";
+
+  data.forEach(p=>{
+    const pnl = p.pnl || 0;
+    const cls = pnl>=0?"profit":"loss";
+
+    positionsTable.innerHTML += `
+      <tr>
+        <td>${p.trading_symbol}</td>
+        <td>${p.quantity}</td>
+        <td>${p.quantity>=0?"BUY":"SELL"}</td>
+        <td>${p.last_price || 0}</td>
+        <td class="${cls}">${pnl}</td>
+      </tr>
+    `;
+
+    total += pnl;
+  });
+
+  pnl.innerText = total.toFixed(2);
+}
+
+// ================= TRADES =================
+async function loadTrades(){
+  const data = await (await fetch("/trades")).json();
+
+  tradesTable.innerHTML="";
+  data.forEach(t=>{
+    const cls = t.pnl>=0?"profit":"loss";
+    tradesTable.innerHTML+=`
+      <tr>
+        <td>${new Date(t.time).toLocaleTimeString()}</td>
+        <td>${t.side}</td>
+        <td>${t.quantity}</td>
+        <td>${t.instrument}</td>
+        <td class="${cls}">${t.pnl}</td>
+      </tr>`;
+  });
+}
+
+// ================= DAILY =================
+async function loadPnL(){
+  const d = await (await fetch("/pnl")).json();
+  daily.innerText = `Trades: ${d.totalTrades} | PnL: ${d.totalPnL}`;
+}
+
+// ================= LOGIN FIX =================
+async function showLoginPrompt() {
+  const totp = prompt("Enter TOTP:");
+
+  if (!totp) {
+    alert("TOTP required");
+    return;
+  }
+
+  try {
+    const res = await fetch("/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ totp })
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      alert("✅ Login Success");
+      loadProfile();
+    } else {
+      alert("❌ Login Failed");
+      console.log(data);
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert("Login error");
+  }
+}
+
+socket.on("pnl", (data) => {
+  console.log("📊 PnL:", data);
+
+  document.getElementById("totalPnL").innerText =
+    "₹ " + data.totalPnL.toFixed(2);
+});
+
+// ================= AUTO REFRESH =================
+setInterval(()=>{
+  loadControl();
+  loadProfile();
+  loadPositions();
+  loadTrades();
+  loadPnL();
+},3000);
+
+// ================= INIT =================
+loadControl();
+loadProfile();
+loadPositions();
+loadTrades();
+loadPnL();
+</script>
+
+</body>
+</html>
