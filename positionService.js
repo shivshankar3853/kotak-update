@@ -55,8 +55,6 @@ async function fetchPositions(force = false) {
       "neo-fin-key": "neotradeapi"
     };
 
-    console.log({ auth: headers.Auth?.substring(0,20), sid: headers.Sid, neoFinKey: headers["neo-fin-key"] });
-
     const response = await axios.get(url, {
       headers,
       timeout: 10000

@@ -87,25 +87,19 @@ function getAccessToken() {
 // ================= SESSION TOKEN =================
 function getSessionToken() {
   if (!tokenData) loadToken();
-  const token = tokenData?.session_token || null;
-  console.log("[TM] getSessionToken length:", token?.length, "start:", token?.substring(0,30));
-  return token;
+  return tokenData?.session_token || null;
 }
 
 // ================= SID =================
 function getSid() {
   if (!tokenData) loadToken();
-  const sid = tokenData?.sid || null;
-  console.log("[TM] getSid:", sid);
-  return sid;
+  return tokenData?.sid || null;
 }
 
 // ================= BASE URL =================
 function getBaseUrl() {
   if (!tokenData) loadToken();
-  const base = tokenData?.baseUrl || null;
-  console.log("[TM] getBaseUrl:", base);
-  return base;
+  return tokenData?.baseUrl || null;
 }
 function buildWsUrl(baseUrl) {
   try {

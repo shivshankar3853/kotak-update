@@ -28,12 +28,6 @@ async function placeOrder(order) {
     const sid = getSid();
     const baseUrl = getBaseUrl();
 
-    // Debug: Check token integrity
-    console.log("TOKEN LENGTH:", sessionToken?.length);
-    console.log("TOKEN START:", sessionToken?.substring(0,50));
-    console.log("SID:", sid);
-    console.log("BASE_URL:", baseUrl);
-
     // ==============================
     // 🧯 SAFE GUARD
     // ==============================
@@ -154,9 +148,7 @@ const jData = {
   ts: symbol,
   tt: action === "BUY" ? "B" : "S"
 };
-    console.log(`📡 Sending Order (AMO=${amFlag}):`, jData);
 
-    console.log("📡 Sending Order:", jData);
 
     // ==============================
     // 📦 API CALL (with one-shot 401 auto-retry)
@@ -181,11 +173,6 @@ const jData = {
         "Content-Type": "application/x-www-form-urlencoded"
       };
 
-      // Debug logs requested: URL, headers (snippet), body
-      console.log("ORDER URL:", orderUrl);
-      console.log("ORDER HEADERS:", { auth: headers.Auth?.substring(0,30), Sid: headers.Sid, neoFinKey: headers["neo-fin-key"] });
-      console.log("ORDER BODY:", payload);
-
       return axios.post(orderUrl, payload, {
         headers,
         timeout: 10000
@@ -194,26 +181,22 @@ const jData = {
 
     try {
       response = await doPost(sessionToken, sid, baseUrl);
-      console.log(response.data);
     } catch (err) {
-      console.log("Status:", err.response?.status);
-      console.log("Headers:", err.config?.headers);
-      console.log("Response:", err.response?.data);
-      console.log("Token:", getSessionToken());
+      if (err.response?.status === 403) {
+        console.error("🔴 403 Forbidden - Possible reasons: expired session, invalid Sid, rate limit, or payload format");
+        console.error("Response:", err.response?.data);
+      }
 
       // If unauthorized, try one refresh via autoLogin and retry once
       if (err.response?.status === 401 && !retriedAfterRefresh) {
         retriedAfterRefresh = true;
         try {
-          console.log("401 detected — attempting auto-login refresh...");
           const refreshResult = await autoLogin();
           if (refreshResult && refreshResult.success) {
             const newToken = getSessionToken();
             const newSid = getSid();
             const newBase = getBaseUrl();
-            console.log("Auto-login refreshed token — retrying order against updated baseUrl:", newBase);
             response = await doPost(newToken, newSid, newBase);
-            console.log(response.data);
           } else {
             console.error("Auto-login did not refresh session:", refreshResult);
           }
@@ -231,8 +214,6 @@ const jData = {
       (response?.data && typeof response.data === "object")
         ? response.data
         : {};
-
-    console.log("✅ Order Success");
 
     // ==============================
     // 🔥 POST TRADE SAFETY

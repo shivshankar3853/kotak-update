@@ -232,11 +232,6 @@ async function loginCore(totp) {
       baseUrl: final.baseUrl
     };
 
-    console.log("🔐 LOGIN RESULT - Token length:", final.token?.length);
-    console.log("🔐 LOGIN RESULT - Token start:", final.token?.substring(0,50));
-    console.log("🔐 LOGIN RESULT - Sid:", final.sid);
-    console.log("🔐 LOGIN RESULT - BaseUrl:", final.baseUrl);
-
     setSession(sessionData);
 
     saveToken({
