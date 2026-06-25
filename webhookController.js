@@ -3,6 +3,7 @@ const { isTradingEnabled, canTrade, isDuplicate } = require("./control");
 const { validateSignal } = require("./validator");
 const { decodeSymbol } = require("./symbolDecoder");
 const { fetchPositions } = require("./positionService");
+const BrokerPosition = require("./models/BrokerPosition");
 const Signal = require("./models/Signal");
 
 // ==============================
@@ -142,8 +143,40 @@ function normalizePositionSide(side) {
 
 async function findBrokerPosition(symbol) {
   try {
+    const targetSymbol = String(symbol || "").trim();
+
+    // build candidate variants to match against stored positions
+    const variants = new Set();
+    if (targetSymbol) variants.add(normalizePositionSymbol(targetSymbol));
+    variants.add((targetSymbol || "").toUpperCase());
+
+    // try decodeSymbol (if available) to get broker-specific format
+    try {
+      const decoded = decodeSymbol(targetSymbol);
+      if (decoded && decoded.kotakSymbol) variants.add(String(decoded.kotakSymbol).toUpperCase());
+    } catch (_) {}
+
+    const candidateArray = Array.from(variants).filter(Boolean);
+
+    // 1) check persisted BrokerPosition first (fast and authoritative from last fetch)
+    try {
+      const dbMatch = await BrokerPosition.findOne({
+        instrument: { $in: candidateArray }
+      }).lean();
+
+      if (dbMatch) {
+        const qty = Number(dbMatch.quantity || dbMatch.qty || 0);
+        const st = String(dbMatch.status || "").toUpperCase();
+        if (qty > 0 && !["CLOSED", "EXITED", "FLAT", "SQUAREOFF"].includes(st)) {
+          return dbMatch;
+        }
+      }
+    } catch (e) {
+      console.error("❌ BrokerPosition DB lookup failed:", e.message || e);
+    }
+
+    // 2) fallback to fresh fetch from broker API
     const positions = await fetchPositions(true);
-    const targetSymbol = normalizePositionSymbol(symbol);
     return positions.find((pos) => {
       const instrument = normalizePositionSymbol(
         pos.TS || pos.symbol || pos.ticker || pos.instrument || pos.s || pos.ts || ""
@@ -151,18 +184,14 @@ async function findBrokerPosition(symbol) {
       const quantity = Number(pos.quantity || pos.qty || pos.Q || pos.q || 0);
       const status = String(pos.status || pos.position_status || pos.st || "").toUpperCase();
 
-      if (!targetSymbol || !instrument || instrument !== targetSymbol) {
-        return false;
-      }
+      if (!instrument) return false;
 
-      if (!quantity || quantity <= 0) {
-        return false;
-      }
+      // compare against any candidate variant
+      const match = candidateArray.some((v) => v && v === instrument);
+      if (!match) return false;
 
-      if (["CLOSED", "SQUAREOFF", "FLAT", "EXITED"].includes(status)) {
-        return false;
-      }
-
+      if (!quantity || quantity <= 0) return false;
+      if (["CLOSED", "SQUAREOFF", "FLAT", "EXITED"].includes(status)) return false;
       return true;
     });
   } catch (err) {
