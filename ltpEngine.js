@@ -42,7 +42,8 @@ async function processQueue() {
       }
 
       const normalizedSymbol = normalize(symbol);
-      let exchange = "nse_fo";
+      // default to cash market (nse_cm). options/futures will switch to nse_fo below.
+      let exchange = "nse_cm";
       let symbolKey = normalizedSymbol;
 
       try {
@@ -56,6 +57,14 @@ async function processQueue() {
       } catch (_) {
         // fallback to raw symbol
       }
+
+      // If no instrument mapping and the symbol looks like an option/future,
+      // prefer the FO segment to avoid calling the wrong API endpoint.
+      try {
+        if ((exchange === "nse_cm" || !exchange) && /(?:CE|PE|FUT)$/.test(normalizedSymbol)) {
+          exchange = "nse_fo";
+        }
+      } catch (_) {}
 
       const formatted = `${exchange}|${symbolKey}`;
 

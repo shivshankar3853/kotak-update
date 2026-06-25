@@ -107,6 +107,10 @@ function convertTV(signal) {
     } catch (decodeErr) {
       // If decoding fails, use original symbol (might be equity or already correct)
       console.log(`⚠️ Symbol decode failed (might be equity): ${signal.TS}`);
+      // ensure we normalize common noise like hyphens and trailing EQ
+      try {
+        finalSymbol = formatSymbol(finalSymbol);
+      } catch (_) {}
     }
 
     return {
@@ -147,13 +151,28 @@ async function findBrokerPosition(symbol) {
 
     // build candidate variants to match against stored positions
     const variants = new Set();
-    if (targetSymbol) variants.add(normalizePositionSymbol(targetSymbol));
-    variants.add((targetSymbol || "").toUpperCase());
+    try {
+      if (targetSymbol) variants.add(normalizePositionSymbol(targetSymbol));
+    } catch (_) {}
+    try {
+      variants.add((targetSymbol || "").toUpperCase());
+    } catch (_) {}
 
-    // try decodeSymbol (if available) to get broker-specific format
+    // also include formatted/stripped variants and plain ticker
+    try {
+      variants.add(formatSymbol(targetSymbol));
+      const lettersOnly = String(targetSymbol || "").toUpperCase().replace(/[^A-Z]/g, "");
+      if (lettersOnly) variants.add(lettersOnly);
+    } catch (_) {}
+
+    // try decodeSymbol (if available) to get broker-specific formats
     try {
       const decoded = decodeSymbol(targetSymbol);
-      if (decoded && decoded.kotakSymbol) variants.add(String(decoded.kotakSymbol).toUpperCase());
+      if (decoded) {
+        if (decoded.kotakSymbol) variants.add(String(decoded.kotakSymbol).toUpperCase());
+        if (decoded.tradingSymbol) variants.add(String(decoded.tradingSymbol).toUpperCase());
+        if (decoded.index) variants.add(String(decoded.index).toUpperCase());
+      }
     } catch (_) {}
 
     const candidateArray = Array.from(variants).filter(Boolean);
@@ -391,9 +410,12 @@ function formatSymbol(ts) {
 
     let symbol = String(ts).trim().toUpperCase();
 
-    // normalize common spaced formats by removing separators
-    if (/\s/.test(symbol)) {
-      symbol = symbol.replace(/[^A-Z0-9]/g, "");
+    // remove non-alphanumeric separators (hyphen, slash, dots, spaces)
+    symbol = symbol.replace(/[^A-Z0-9]/g, "");
+
+    // strip common equity suffix 'EQ' if present (e.g., CANBK-EQ → CANBK)
+    if (/^[A-Z]+EQ$/.test(symbol)) {
+      symbol = symbol.replace(/EQ$/, "");
     }
 
     const parts = symbol.split(/\s+/);
