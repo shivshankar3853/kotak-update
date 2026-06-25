@@ -283,6 +283,16 @@ async function connectWS() {
                 { EX: 60 }
               );
             }
+
+            // also store by the normalized numeric token if present to support token-based lookups
+            const normToken = normalizeSymbol(parsed.instrumentToken || parsed.token || parsed.tkn);
+            if (normToken) {
+              await redis.set(
+                `tick:${normToken}`,
+                JSON.stringify(tick),
+                { EX: 60 }
+              );
+            }
           }
 
           if (primarySymbol) {
@@ -362,7 +372,7 @@ async function getTickAsync(symbol) {
 
   try {
     if (redis && redis.isOpen) {
-      const raw = await redis.get(`tick:${symbol}`);
+      const raw = await redis.get(`tick:${key}`) || await redis.get(`tick:${symbol}`);
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
