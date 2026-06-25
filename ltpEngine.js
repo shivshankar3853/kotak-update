@@ -51,7 +51,10 @@ async function processQueue() {
         if (instrument?.es) {
           exchange = String(instrument.es).trim().toLowerCase();
         }
-        if (instrument?.ts) {
+        // Prefer broker/internal numeric token if available (more reliable for API lookups)
+        if (instrument?.token) {
+          symbolKey = String(instrument.token).trim();
+        } else if (instrument?.ts) {
           symbolKey = instrument.ts;
         }
       } catch (_) {
@@ -68,6 +71,10 @@ async function processQueue() {
 
       const formatted = `${exchange}|${symbolKey}`;
 
+      if (process.env.DEBUG === "true") {
+        console.log("🔗 LTP request:", `${baseUrl}/script-details/1.0/quotes/neosymbol/${formatted}/all`);
+      }
+
       const res = await axios.get(
         `${baseUrl}/script-details/1.0/quotes/neosymbol/${formatted}/all`,
         {
@@ -77,6 +84,12 @@ async function processQueue() {
           timeout: 8000
         }
       );
+
+      if (process.env.DEBUG === "true") {
+        try {
+          console.log("🔔 LTP response status:", res.status, "data keys:", Object.keys(res.data || {}));
+        } catch (_) {}
+      }
 
       const ltp = Number(
         res.data?.data?.lastPrice ||

@@ -179,11 +179,18 @@ async function findBrokerPosition(symbol) {
 
     // 1) check persisted BrokerPosition first (fast and authoritative from last fetch)
     try {
+      if (process.env.DEBUG === "true") {
+        console.log("🔎 Candidate symbols for broker lookup:", candidateArray);
+      }
+
       const dbMatch = await BrokerPosition.findOne({
         instrument: { $in: candidateArray }
       }).lean();
 
       if (dbMatch) {
+        if (process.env.DEBUG === "true") {
+          console.log("🗃️ BrokerPosition DB match:", dbMatch.instrument, "qty:", dbMatch.quantity, "status:", dbMatch.status);
+        }
         const qty = Number(dbMatch.quantity || dbMatch.qty || 0);
         const st = String(dbMatch.status || "").toUpperCase();
         if (qty > 0 && !["CLOSED", "EXITED", "FLAT", "SQUAREOFF"].includes(st)) {

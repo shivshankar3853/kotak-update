@@ -1,6 +1,8 @@
 const axios = require("axios");
 const logger = require("./logger");
 const BrokerPosition = require("./models/BrokerPosition");
+const { getLTP: getLTPFromEngine } = require("./ltpEngine");
+const { getLTP: getLTPFromPriceService } = require("./priceService");
 
 const { getSession } = require("./sessionManager");
 const { isTokenExpired } = require("./tokenManager");
@@ -76,7 +78,7 @@ async function fetchPositions(force = false) {
     if (Array.isArray(cachedPositions) && cachedPositions.length > 0) {
       await Promise.all(
         cachedPositions.map(async (pos) => {
-          const instrument =
+          const rawInstrument =
             pos.TS ||
             pos.symbol ||
             pos.ticker ||
@@ -84,6 +86,17 @@ async function fetchPositions(force = false) {
             pos.s ||
             pos.ts ||
             null;
+
+          // normalize stored instrument to a consistent alphanumeric-only form
+          let instrument = null;
+          try {
+            instrument = String(rawInstrument || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+            if (/^[A-Z]+EQ$/.test(instrument)) {
+              instrument = instrument.replace(/EQ$/, "");
+            }
+          } catch (_) {
+            instrument = rawInstrument;
+          }
 
           if (!instrument) return;
 
@@ -168,7 +181,124 @@ async function fetchPositions(force = false) {
 
 // ================= PUBLIC =================
 async function getPositions() {
-  return fetchPositions();
+  try {
+    const raw = await fetchPositions();
+
+    if (!Array.isArray(raw)) return [];
+
+    // Map raw broker positions into normalized objects the UI expects
+    const mapped = await Promise.all(
+      raw.map(async (pos) => {
+        // prefer explicit trading symbol fields from broker response
+        const rawTrdSym = pos.trdSym || pos.trdSymbol || pos.trd_sym || pos.trd || null;
+
+        const rawInstrument =
+          pos.TS || pos.symbol || pos.ticker || pos.instrument || pos.s || pos.ts || pos.sym || rawTrdSym || "";
+
+        // normalized id used for lookups
+        let instrument = String(rawInstrument || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+        if (/^[A-Z]+EQ$/.test(instrument)) {
+          instrument = instrument.replace(/EQ$/, "");
+        }
+
+        // compute quantity from known fields (prefer explicit quantity, else compute net filled qty)
+        const explicitQty = Number(pos.quantity || pos.qty || pos.Q || 0);
+        const flBuy = Number(pos.flBuyQty || pos.fl_buy_qty || pos.flBuy || 0);
+        const flSell = Number(pos.flSellQty || pos.fl_sell_qty || pos.flSell || 0);
+        const cfBuy = Number(pos.cfBuyQty || pos.cf_buy_qty || pos.cfBuy || 0);
+        const cfSell = Number(pos.cfSellQty || pos.cf_sell_qty || pos.cfSell || 0);
+
+        let quantity = explicitQty;
+        if (!quantity) {
+          const netFl = flBuy - flSell;
+          const netCf = cfBuy - cfSell;
+          quantity = netFl || netCf || 0;
+        }
+
+        // determine side from quantity if not explicitly provided
+        let side = String(pos.side || pos.transaction_type || pos.tt || pos.action || "").toUpperCase();
+        if (!side) {
+          if (quantity > 0) side = "BUY";
+          else if (quantity < 0) side = "SELL";
+          else side = "FLAT";
+        }
+
+        const pnl = Number(pos.pnl || pos.PnL || pos.profit || pos.profitLoss || 0);
+
+        // get current LTP if possible (fallback to broker-provided values)
+        let last_price = Number(pos.lastPrice || pos.ltp || pos.last || pos.MV || 0);
+        try {
+          // Prefer priceService.getLTP (includes session headers); fallback to engine
+          let l = 0;
+          try {
+            l = await getLTPFromPriceService(instrument || rawTrdSym || pos.sym);
+          } catch (_) {
+            // ignore
+          }
+
+          if (!l || l === 0) {
+            try {
+              l = await getLTPFromEngine(instrument || rawTrdSym || pos.sym);
+            } catch (_) {}
+          }
+
+          if (l && l > 0) last_price = l;
+        } catch (_) {}
+
+        // Fallback: derive a sensible last_price from broker fields when LTP not available
+        if (!last_price || last_price === 0) {
+          try {
+            const buyAmt = Number(pos.buyAmt || pos.cfBuyAmt || 0);
+            const sellAmt = Number(pos.sellAmt || pos.cfSellAmt || 0);
+            const flBuy = Number(pos.flBuyQty || pos.flBuy || 0);
+            const flSell = Number(pos.flSellQty || pos.flSell || 0);
+            const cfBuy = Number(pos.cfBuyQty || pos.cfBuyQty || 0) || Number(pos.cfBuyQty || 0);
+            const cfSell = Number(pos.cfSellQty || pos.cfSellQty || 0) || Number(pos.cfSellQty || 0);
+
+            if (flBuy > 0 && buyAmt > 0) {
+              last_price = buyAmt / flBuy;
+            } else if (flSell > 0 && sellAmt > 0) {
+              last_price = sellAmt / flSell;
+            } else if (cfBuy > 0 && buyAmt > 0) {
+              last_price = buyAmt / cfBuy;
+            } else if (cfSell > 0 && sellAmt > 0) {
+              last_price = sellAmt / cfSell;
+            }
+
+            if ((!last_price || last_price === 0) && (buyAmt > 0 || sellAmt > 0)) {
+              // as a last resort, use the smaller of buy/sell amounts
+              last_price = (buyAmt > 0 && sellAmt > 0) ? Math.min(buyAmt, sellAmt) : Math.max(buyAmt, sellAmt);
+            }
+
+            if (process.env.DEBUG === "true") {
+              console.log("🔁 LTP fallback for", trading_symbol || instrument || rawTrdSym, "=>", last_price);
+            }
+          } catch (_) {}
+        }
+
+        // present a readable trading symbol for the UI
+        const trading_symbol = rawTrdSym || pos.trdSym || pos.trdSymbol || pos.sym || rawInstrument || instrument;
+
+        if (typeof last_price === "number" && !Number.isNaN(last_price)) {
+          last_price = Number(last_price.toFixed(2));
+        }
+
+        return {
+          trading_symbol,
+          quantity,
+          side,
+          last_price,
+          pnl,
+          raw: pos
+        };
+      })
+    );
+
+    return mapped;
+  } catch (err) {
+    logger.error(`getPositions mapping error: ${err.message}`);
+    return [];
+  }
 }
 
 module.exports = {
