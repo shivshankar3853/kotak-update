@@ -155,54 +155,6 @@ if (fs.existsSync(publicDir)) {
   );
 }
 
-// ================= DUPLICATE HELPERS =================
-const recentTrades = new Map();
-
-function isRecent(symbol) {
-  if (!symbol) return false;
-
-  const now = Date.now();
-
-  if (recentTrades.has(symbol) && now - recentTrades.get(symbol) < 5000) {
-    return true;
-  }
-
-  recentTrades.set(symbol, now);
-  return false;
-}
-
-// ================= CLEANUP =================
-setInterval(() => {
-  try {
-    const now = Date.now();
-
-    for (const [key, time] of recentTrades.entries()) {
-      if (now - time > 60000) {
-        recentTrades.delete(key);
-      }
-    }
-  } catch (err) {
-    logger.error(`Duplicate cleanup error: ${err.message}`);
-  }
-}, 60000);
-
-// ================= DB DUPLICATE =================
-async function isDuplicateTrade(symbol) {
-  try {
-    if (!symbol) return false;
-
-    const existing = await Trade.findOne({
-      instrument: symbol,
-      status: "OPEN"
-    });
-
-    return !!existing;
-  } catch (err) {
-    logger.error(`Duplicate check error: ${err.message}`);
-    return false;
-  }
-}
-
 // ================= INIT =================
 async function init() {
   try {
@@ -396,18 +348,6 @@ app.post("/webhook", async (req, res) => {
                    firstItem.instrument;
 
     if (!symbol) return res.status(400).json({ status: "invalid signal", errors: ["Missing required field: symbol (TS, symbol, ticker, s, or instrument)"] });
-
-    if (isRecent(symbol)) {
-      logger.warn(`⚠️ Fast duplicate blocked: ${symbol}`);
-      return res.send("Blocked duplicate");
-    }
-
-    const duplicate = await isDuplicateTrade(symbol);
-
-    if (duplicate) {
-      logger.warn(`⚠️ DB duplicate blocked: ${symbol}`);
-      return res.send("Blocked (duplicate trade)");
-    }
 
     await handleWebhook(req, res);
 

@@ -1,32 +1,11 @@
 const { placeOrder } = require("./orderService");
-const { isTradingEnabled, canTrade } = require("./control");
+const { isTradingEnabled, canTrade, isDuplicate } = require("./control");
 const { validateSignal } = require("./validator");
 const { decodeSymbol } = require("./symbolDecoder");
 
 // ==============================
 // 🚫 DUPLICATE SIGNAL PROTECTION (SAFE + LEAK FREE)
-// ==============================
-const recentSignals = new Map();
-
-// periodic cleanup (prevents memory leak)
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, time] of recentSignals.entries()) {
-    if (now - time > 10000) recentSignals.delete(key);
-  }
-}, 5000);
-
-function isDuplicate(signal) {
-  if (!signal) return true;
-
-  const key = `${signal.TS || ""}_${signal.TT || ""}_${signal.Q || ""}`;
-
-  if (recentSignals.has(key)) return true;
-
-  recentSignals.set(key, Date.now());
-  return false;
-}
-
+// Use control.js for the 45-second dedupe window.
 // ==============================
 // 🔁 NORMALIZE SIGNAL FORMAT
 // ==============================
