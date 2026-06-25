@@ -24,10 +24,19 @@ function buildWsUrl(baseUrl) {
 // ======================================================
 // 🔐 TOTP GENERATION (Google Authenticator Compatible)
 // ======================================================
+function getTotpSecret() {
+  return process.env.KOTAK_TOTP_SECRET || process.env.TOTP_SECRET;
+}
+
+function hasTotpSecret() {
+  const secret = getTotpSecret();
+  return Boolean(secret && secret !== "YOUR_SECRET_KEY");
+}
+
 function generateTOTP() {
-  const secret = process.env.KOTAK_TOTP_SECRET || process.env.TOTP_SECRET;
+  const secret = getTotpSecret();
   
-  if (!secret || secret === "YOUR_SECRET_KEY") {
+  if (!hasTotpSecret()) {
     console.error("❌ TOTP Secret not configured. Set KOTAK_TOTP_SECRET in .env");
     throw new Error("TOTP_SECRET not configured");
   }
@@ -63,7 +72,19 @@ async function autoLogin() {
   try {
     if (isLoggingIn) {
       console.log("⏳ Login already in progress, skipping auto-login");
-      return;
+      return {
+        success: false,
+        error: "Login already in progress"
+      };
+    }
+
+    if (!hasTotpSecret()) {
+      const errorMessage = "TOTP secret not configured. Auto-login skipped.";
+      console.error(`❌ ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage
+      };
     }
 
     let totp;
@@ -91,6 +112,10 @@ async function autoLogin() {
     
   } catch (err) {
     console.error("❌ Auto-login error:", err.message);
+    return {
+      success: false,
+      error: err.message || "Auto-login failed"
+    };
   }
 }
 
@@ -101,6 +126,11 @@ function enableAutoLogin(intervalMs = 3600000) {
   // Default: 1 hour (3600000 ms)
   if (autoLoginEnabled) {
     console.log("⚠️ Auto-login already enabled");
+    return;
+  }
+
+  if (!hasTotpSecret()) {
+    console.error("❌ Auto-login disabled: KOTAK_TOTP_SECRET is not configured.");
     return;
   }
 
