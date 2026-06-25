@@ -11,7 +11,11 @@ const signalSchema = new mongoose.Schema(
     duplicate: { type: Boolean, default: false },
     processed: { type: Boolean, default: false },
     orderId: { type: String, default: null },
-    error: { type: String, default: null }
+    error: { type: String, default: null },
+    // decision: high-level decision for this signal (e.g. IGNORED, EXITED, OPENED)
+    decision: { type: String, default: null },
+    // decisionLog: chronological, human-readable notes describing decisions and actions taken
+    decisionLog: { type: [String], default: [] }
   },
   {
     timestamps: true

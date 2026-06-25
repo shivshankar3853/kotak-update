@@ -1,7 +1,8 @@
-const { placeOrder } = require("./orderService");
+const { placeOrder, exitAndReenter } = require("./orderService");
 const { isTradingEnabled, canTrade, isDuplicate } = require("./control");
 const { validateSignal } = require("./validator");
 const { decodeSymbol } = require("./symbolDecoder");
+const { fetchPositions } = require("./positionService");
 const Signal = require("./models/Signal");
 
 // ==============================
@@ -128,6 +129,58 @@ function convertTV(signal) {
   }
 }
 
+function normalizePositionSymbol(value) {
+  return formatSymbol(String(value || "").trim().toUpperCase());
+}
+
+function normalizePositionSide(side) {
+  const normalized = String(side || "").trim().toUpperCase();
+  if (normalized === "B" || normalized === "BUY") return "BUY";
+  if (normalized === "S" || normalized === "SELL") return "SELL";
+  return normalized;
+}
+
+async function findBrokerPosition(symbol) {
+  try {
+    const positions = await fetchPositions(true);
+    const targetSymbol = normalizePositionSymbol(symbol);
+    return positions.find((pos) => {
+      const instrument = normalizePositionSymbol(
+        pos.TS || pos.symbol || pos.ticker || pos.instrument || pos.s || pos.ts || ""
+      );
+      const quantity = Number(pos.quantity || pos.qty || pos.Q || pos.q || 0);
+      const status = String(pos.status || pos.position_status || pos.st || "").toUpperCase();
+
+      if (!targetSymbol || !instrument || instrument !== targetSymbol) {
+        return false;
+      }
+
+      if (!quantity || quantity <= 0) {
+        return false;
+      }
+
+      if (["CLOSED", "SQUAREOFF", "FLAT", "EXITED"].includes(status)) {
+        return false;
+      }
+
+      return true;
+    });
+  } catch (err) {
+    console.error("❌ Broker position lookup failed:", err.message);
+    return null;
+  }
+}
+
+async function appendDecision(signalId, message, decision = null) {
+  try {
+    const update = { $push: { decisionLog: `${new Date().toISOString()} - ${message}` } };
+    if (decision) update.$set = { decision };
+    await Signal.findByIdAndUpdate(signalId, update);
+  } catch (e) {
+    console.error("❌ appendDecision error:", e.message || e);
+  }
+}
+
 // ==============================
 // 📡 WEBHOOK HANDLER
 // ==============================
@@ -219,6 +272,50 @@ async function handleWebhook(req, res) {
           });
           errors.push("Order conversion failed");
           continue;
+        }
+
+        const incomingSide = normalizePositionSide(order.transaction_type);
+        const currentPosition = await findBrokerPosition(order.TS);
+        const currentSide = normalizePositionSide(
+          currentPosition?.side ||
+          currentPosition?.transaction_type ||
+          currentPosition?.tt ||
+          currentPosition?.action ||
+          ""
+        );
+
+        if (currentPosition && currentSide === incomingSide) {
+          await Signal.findByIdAndUpdate(signalDoc._id, {
+            processed: true,
+            error: `Same ${incomingSide} position already open in broker terminal; ignored.`
+          });
+          await appendDecision(signalDoc._id, `Ignored signal because same-side ${incomingSide} position exists for ${order.TS}`, "IGNORED");
+          console.log(`⛔ Ignoring same-side broker position for ${order.TS}`);
+          continue;
+        }
+
+        if (currentPosition && currentSide && currentSide !== incomingSide) {
+          const oppositeQty = Number(
+            currentPosition.quantity ||
+            currentPosition.qty ||
+            currentPosition.Q ||
+            0
+          ) || order.quantity;
+
+          console.log(
+            `🔁 Opposite broker position detected for ${order.TS}: ${currentSide} ${oppositeQty}. Exiting first before opening new position.`
+          );
+
+          await appendDecision(signalDoc._id, `Detected opposite-side ${currentSide} position (${oppositeQty}). Will exit then open ${incomingSide}.`, "EXIT_AND_REENTER");
+
+          try {
+            const result = await exitAndReenter(currentPosition, order, signalDoc._id);
+            await appendDecision(signalDoc._id, `Exit result: ${JSON.stringify(result?.exitRes || result)}`);
+            await appendDecision(signalDoc._id, `Open result: ${JSON.stringify(result?.newRes || result)}`, "OPENED");
+          } catch (e) {
+            await appendDecision(signalDoc._id, `Exit+Reenter failed: ${e.message || e}`, "ERROR");
+            throw e;
+          }
         }
 
         console.log("📤 Final Order:", order);

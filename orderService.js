@@ -451,3 +451,48 @@ module.exports = {
   placeOrder,
   getTradeLog
 };
+
+// ==============================
+// Exit existing broker position then open new one (atomic helper)
+// ==============================
+async function exitAndReenter(currentPosition, newOrder, signalId = null) {
+  try {
+    if (!currentPosition || !newOrder) return null;
+
+    const curSide = String(currentPosition.side || currentPosition.transaction_type || "").trim().toUpperCase();
+    const exitSide = curSide === "BUY" ? "SELL" : "BUY";
+    const exitQty = Number(currentPosition.quantity || currentPosition.qty || currentPosition.Q || newOrder.quantity) || newOrder.quantity;
+
+    // Place market exit order for the existing position
+    const exitOrder = {
+      TS: newOrder.TS || newOrder.ts || newOrder.symbol,
+      quantity: exitQty,
+      transaction_type: exitSide,
+      order_type: "MARKET",
+      product: newOrder.product || "NRML",
+      validity: "DAY"
+    };
+
+    console.log(`🔁 exitAndReenter: exiting ${exitSide} ${exitQty} for ${exitOrder.TS}`);
+
+    const exitRes = await placeOrder(exitOrder, signalId);
+
+    // Small delay to let broker/process update positions
+    await new Promise((r) => setTimeout(r, 1500));
+
+    console.log(`🔁 exitAndReenter: placing new order ${newOrder.transaction_type} ${newOrder.quantity} for ${newOrder.TS}`);
+
+    const newRes = await placeOrder(newOrder, signalId);
+
+    return { exitRes, newRes };
+  } catch (err) {
+    console.error("❌ exitAndReenter failed:", err.message || err);
+    throw err;
+  }
+}
+
+module.exports = {
+  placeOrder,
+  getTradeLog,
+  exitAndReenter
+};
