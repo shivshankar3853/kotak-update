@@ -1,5 +1,6 @@
 const axios = require("axios");
 const logger = require("./logger");
+const BrokerPosition = require("./models/BrokerPosition");
 
 const { getSession } = require("./sessionManager");
 const { isTokenExpired } = require("./tokenManager");
@@ -71,6 +72,75 @@ async function fetchPositions(force = false) {
       : [];
 
     lastFetchTime = now;
+
+    if (Array.isArray(cachedPositions) && cachedPositions.length > 0) {
+      await Promise.all(
+        cachedPositions.map(async (pos) => {
+          const instrument =
+            pos.TS ||
+            pos.symbol ||
+            pos.ticker ||
+            pos.instrument ||
+            pos.s ||
+            pos.ts ||
+            null;
+
+          if (!instrument) return;
+
+          const side =
+            pos.side ||
+            pos.transaction_type ||
+            pos.tt ||
+            pos.action ||
+            null;
+
+          const quantity = Number(
+            pos.quantity || pos.qty || pos.Q || 0
+          );
+
+          const averagePrice = Number(
+            pos.averagePrice ||
+            pos.avg_price ||
+            pos.price ||
+            0
+          );
+
+          const marketValue = Number(
+            pos.marketValue || pos.MV || pos.value || 0
+          );
+
+          const pnl = Number(
+            pos.pnl || pos.PnL || pos.profit || pos.profitLoss || 0
+          );
+
+          const status = pos.status || "OPEN";
+
+          try {
+            await BrokerPosition.findOneAndUpdate(
+              { instrument },
+              {
+                instrument,
+                side,
+                quantity,
+                averagePrice,
+                marketValue,
+                pnl,
+                status,
+                raw: pos,
+                updatedAt: new Date()
+              },
+              {
+                upsert: true,
+                new: true,
+                setDefaultsOnInsert: true
+              }
+            );
+          } catch (e) {
+            logger.error(`❌ BrokerPosition persistence error: ${e.message}`);
+          }
+        })
+      );
+    }
 
     logger.info(`📊 Positions Loaded: ${cachedPositions.length}`);
 

@@ -1,5 +1,6 @@
 const WebSocket = require("ws");
 const logger = require("./logger");
+const LTPModel = require("./models/LTP");
 
 const {
   getSessionToken,
@@ -267,6 +268,8 @@ async function connectWS() {
             normalizeSymbol(parsed.tkn)
           ]);
 
+          const primarySymbol = normalizeSymbol(symbol) || Array.from(keys).find(Boolean);
+
           for (const key of keys) {
             if (key) tickStore.set(key, tick);
           }
@@ -279,6 +282,24 @@ async function connectWS() {
                 JSON.stringify(tick),
                 { EX: 60 }
               );
+            }
+          }
+
+          if (primarySymbol) {
+            try {
+              await LTPModel.findOneAndUpdate(
+                { symbol: primarySymbol },
+                {
+                  symbol: primarySymbol,
+                  ltp,
+                  source: "WS",
+                  raw: parsed,
+                  timestamp: new Date()
+                },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+              );
+            } catch (e) {
+              logger.error(`❌ LTP persistence error: ${e.message}`);
             }
           }
         }

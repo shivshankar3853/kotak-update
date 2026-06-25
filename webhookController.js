@@ -2,6 +2,7 @@ const { placeOrder } = require("./orderService");
 const { isTradingEnabled, canTrade, isDuplicate } = require("./control");
 const { validateSignal } = require("./validator");
 const { decodeSymbol } = require("./symbolDecoder");
+const Signal = require("./models/Signal");
 
 // ==============================
 // 🚫 DUPLICATE SIGNAL PROTECTION (SAFE + LEAK FREE)
@@ -150,10 +151,23 @@ async function handleWebhook(req, res) {
     let processedAny = false;
 
     for (const rawSignal of signals) {
+      let signalDoc = null;
       try {
         const normalizedSignal = normalizeSignal(rawSignal);
 
+        signalDoc = await Signal.create({
+          raw: rawSignal,
+          normalized: normalizedSignal || null,
+          validated: false,
+          duplicate: false,
+          processed: false
+        });
+
         if (!normalizedSignal) {
+          await Signal.findByIdAndUpdate(signalDoc._id, {
+            validationErrors: ["Invalid payload format"],
+            error: "Invalid payload format"
+          });
           errors.push("Invalid payload format");
           continue;
         }
@@ -161,6 +175,11 @@ async function handleWebhook(req, res) {
         const result = validateSignal(normalizedSignal);
 
         if (!result.ok) {
+          await Signal.findByIdAndUpdate(signalDoc._id, {
+            validated: false,
+            validationErrors: [result.error],
+            error: result.error
+          });
           console.log("❌ Invalid signal:", result.error);
           errors.push(result.error);
           continue;
@@ -171,29 +190,56 @@ async function handleWebhook(req, res) {
           ...result.data
         };
 
+        await Signal.findByIdAndUpdate(signalDoc._id, {
+          normalized: validSignal,
+          validated: true
+        });
+
         if (isDuplicate(validSignal)) {
+          await Signal.findByIdAndUpdate(signalDoc._id, {
+            duplicate: true,
+            error: "Duplicate signal"
+          });
           console.log("⚠️ Duplicate ignored:", validSignal.TS);
           continue;
         }
 
         if (!canTrade()) {
+          await Signal.findByIdAndUpdate(signalDoc._id, {
+            error: "Trade limit reached"
+          });
           console.log("⛔ Trade limit reached");
           continue;
         }
 
         const order = convertTV(validSignal);
         if (!order) {
+          await Signal.findByIdAndUpdate(signalDoc._id, {
+            error: "Order conversion failed"
+          });
           errors.push("Order conversion failed");
           continue;
         }
 
         console.log("📤 Final Order:", order);
 
-        const resultOrder = await placeOrder(order);
+        const resultOrder = await placeOrder(order, signalDoc._id);
 
         console.log("✅ Order Success:", resultOrder);
+
+        await Signal.findByIdAndUpdate(signalDoc._id, {
+          processed: true,
+          orderId: resultOrder?.nOrdNo || resultOrder?.orderId || null,
+          error: null
+        });
+
         processedAny = true;
       } catch (err) {
+        if (signalDoc) {
+          await Signal.findByIdAndUpdate(signalDoc._id, {
+            error: err.message || "Order processing failed"
+          });
+        }
         console.error("❌ Order Failed:", err.message);
         errors.push(err.message);
       }

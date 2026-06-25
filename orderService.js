@@ -10,6 +10,7 @@ const {
 const { autoLogin } = require("./authController");
 
 const Trade = require("./models/Trade");
+const BrokerOrder = require("./models/BrokerOrder");
 
 const { findInstrument } = require("./instrumentStore");
 
@@ -20,7 +21,7 @@ const {
 
 const { getTickAsync } = require("./wsService");
 
-async function placeOrder(order) {
+async function placeOrder(order, signalId = null) {
 
   try {
 
@@ -124,30 +125,54 @@ async function placeOrder(order) {
         : 100;
 
     const productMap = {
-  CNC: "CNC",
-  MIS: "MIS",
-  NRML: "NRML"
-};
+      CNC: "CNC",
+      MIS: "MIS",
+      NRML: "NRML"
+    };
 
-const jData = {
-  am: amFlag,
-  dq: "0",
-  es: instrument?.es || "nse_fo",
-  mp: "0",
-  pc: productMap[
-    String(order?.product || "")
-      .trim()
-      .toUpperCase()
-  ] || "CNC",
-  pf: "N",
-  pr: "0",
-  pt: "MKT",
-  qt: qtyFinal,
-  rt: "DAY",
-  tp: "0",
-  ts: symbol,
-  tt: action === "BUY" ? "B" : "S"
-};
+    const jData = {
+      am: amFlag,
+      dq: "0",
+      es: instrument?.es || "nse_fo",
+      mp: "0",
+      pc: productMap[
+        String(order?.product || "")
+          .trim()
+          .toUpperCase()
+      ] || "CNC",
+      pf: "N",
+      pr: "0",
+      pt: "MKT",
+      qt: qtyFinal,
+      rt: "DAY",
+      tp: "0",
+      ts: symbol,
+      tt: action === "BUY" ? "B" : "S"
+    };
+
+    let brokerOrderDoc = null;
+    try {
+      brokerOrderDoc = await BrokerOrder.create({
+        signalId,
+        symbol,
+        side: action,
+        quantity,
+        product: order?.product || "NRML",
+        orderType: order?.order_type || order?.OT || "MARKET",
+        validity: order?.validity || order?.VL || "DAY",
+        amo: order?.AMO || order?.amo || order?.after_market || order?.afterMarket || order?.am || "NO",
+        targetPrice: Number(order?.TP || order?.TGT || order?.targetPrice || 0),
+        stopLossPoint: Number(order?.SLP || order?.slp || order?.stop_loss || order?.stopLoss || order?.sl || order?.stop_loss_points || order?.stopLossPoint || 0),
+        requestPayload: {
+          order,
+          jData
+        },
+        status: "PENDING",
+        placedAt: new Date()
+      });
+    } catch (e) {
+      console.error(`❌ BrokerOrder create failed: ${e.message}`);
+    }
 
 
     // ==============================
@@ -214,6 +239,24 @@ const jData = {
       (response?.data && typeof response.data === "object")
         ? response.data
         : {};
+
+    const brokerStatus =
+      orderData?.status || orderData?.stat || orderData?.order_status || orderData?.orderStatus || null;
+
+    const statusValue =
+      brokerStatus && /rejected|fail|not_ok/i.test(String(brokerStatus))
+        ? "REJECTED"
+        : "SUCCESS";
+
+    if (brokerOrderDoc?._id) {
+      await BrokerOrder.findByIdAndUpdate(brokerOrderDoc._id, {
+        brokerOrderId: orderData?.nOrdNo || orderData?.orderId || null,
+        brokerStatus,
+        response: orderData,
+        status: statusValue,
+        completedAt: new Date()
+      });
+    }
 
     // ==============================
     // 🔥 POST TRADE SAFETY
@@ -362,6 +405,19 @@ const jData = {
       "❌ Order Error:",
       err?.response?.data || err.message
     );
+
+    try {
+      if (brokerOrderDoc?._id) {
+        await BrokerOrder.findByIdAndUpdate(brokerOrderDoc._id, {
+          status: "FAILED",
+          error: err?.response?.data || err.message || "Order failed",
+          completedAt: new Date(),
+          response: err?.response?.data || null
+        });
+      }
+    } catch (updateErr) {
+      console.error(`❌ BrokerOrder failure update error: ${updateErr.message}`);
+    }
 
     throw err;
   }
